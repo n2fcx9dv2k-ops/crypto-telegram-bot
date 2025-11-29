@@ -1,7 +1,8 @@
 import os
 import requests
 import logging
-from telegram.ext import Updater, CommandHandler, CallbackContext
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 
 # Настройка логирования
 logging.basicConfig(
@@ -15,7 +16,7 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 COINMARKETCAP_API = os.getenv('COINMARKETCAP_API')
 ETHERSCAN_API = os.getenv('ETHERSCAN_API')
 
-def start(update, context):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start"""
     user_name = update.message.from_user.first_name
     welcome_text = f"""
@@ -40,12 +41,12 @@ def start(update, context):
 /gas
 /balance 0x742d35Cc6634C0532925a3b8D6B3980A11F1f6f1
     """
-    update.message.reply_text(welcome_text)
+    await update.message.reply_text(welcome_text)
 
-def price(update, context):
+async def price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /price"""
     if not context.args:
-        update.message.reply_text("❌ Укажите символ криптовалюты. Например: /price BTC")
+        await update.message.reply_text("❌ Укажите символ криптовалюты. Например: /price BTC")
         return
     
     symbol = context.args[0].upper()
@@ -53,7 +54,7 @@ def price(update, context):
     try:
         # Если API ключ не установлен, показываем заглушку
         if not COINMARKETCAP_API:
-            update.message.reply_text(f"💰 **{symbol}**\n\n💵 Цена: $--,--\n📊 Изменение за 24ч: +--%")
+            await update.message.reply_text(f"💰 **{symbol}**\n\n💵 Цена: $--,--\n📊 Изменение за 24ч: +--%")
             return
             
         url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
@@ -81,20 +82,20 @@ def price(update, context):
 {change_emoji} Изменение за 24ч: {change_24h:+.2f}%
 🆔 Ранг: #{coin_data.get('cmc_rank', 'N/A')}
             """
-            update.message.reply_text(message)
+            await update.message.reply_text(message)
         else:
             error_msg = data.get('status', {}).get('error_message', 'Криптовалюта не найдена')
-            update.message.reply_text(f"❌ Ошибка: {error_msg}")
+            await update.message.reply_text(f"❌ Ошибка: {error_msg}")
 
     except requests.exceptions.Timeout:
-        update.message.reply_text("⏰ Таймаут при запросе к CoinMarketCap")
+        await update.message.reply_text("⏰ Таймаут при запросе к CoinMarketCap")
     except requests.exceptions.RequestException:
-        update.message.reply_text("❌ Ошибка сети при получении данных")
+        await update.message.reply_text("❌ Ошибка сети при получении данных")
     except Exception as e:
         logger.error(f"Error in price command: {e}")
-        update.message.reply_text("❌ Внутренняя ошибка бота")
+        await update.message.reply_text("❌ Внутренняя ошибка бота")
 
-def gas(update, context):
+async def gas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /gas"""
     try:
         # Если API ключ не установлен, показываем заглушку
@@ -106,7 +107,7 @@ def gas(update, context):
 🐢 Медленно: -- Gwei  
 ⚡ Стандарт: -- Gwei
             """
-            update.message.reply_text(message)
+            await update.message.reply_text(message)
             return
             
         url = "https://api.etherscan.io/api"
@@ -128,29 +129,29 @@ def gas(update, context):
 🐢 Медленно: {gas_data['SafeGasPrice']} Gwei
 ⚡ Стандарт: {gas_data['ProposeGasPrice']} Gwei
             """
-            update.message.reply_text(message)
+            await update.message.reply_text(message)
         else:
-            update.message.reply_text("❌ Ошибка при получении данных о газе")
+            await update.message.reply_text("❌ Ошибка при получении данных о газе")
 
     except requests.exceptions.Timeout:
-        update.message.reply_text("⏰ Таймаут при запросе к Etherscan")
+        await update.message.reply_text("⏰ Таймаут при запросе к Etherscan")
     except requests.exceptions.RequestException:
-        update.message.reply_text("❌ Ошибка сети при получении данных о газе")
+        await update.message.reply_text("❌ Ошибка сети при получении данных о газе")
     except Exception as e:
         logger.error(f"Error in gas command: {e}")
-        update.message.reply_text("❌ Внутренняя ошибка бота")
+        await update.message.reply_text("❌ Внутренняя ошибка бота")
 
-def balance(update, context):
+async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /balance"""
     if not context.args:
-        update.message.reply_text("❌ Укажите адрес кошелька. Например: /balance 0x742d35Cc6634C0532925a3b8D6B3980A11F1f6f1")
+        await update.message.reply_text("❌ Укажите адрес кошелька. Например: /balance 0x742d35Cc6634C0532925a3b8D6B3980A11F1f6f1")
         return
     
     address = context.args[0]
     
     # Базовая валидация адреса Ethereum
     if not address.startswith('0x') or len(address) != 42:
-        update.message.reply_text("❌ Неверный формат Ethereum адреса")
+        await update.message.reply_text("❌ Неверный формат Ethereum адреса")
         return
     
     try:
@@ -162,7 +163,7 @@ def balance(update, context):
 📍 Адрес: {address[:10]}...{address[-8:]}
 💰 Баланс: --.-- ETH
             """
-            update.message.reply_text(message)
+            await update.message.reply_text(message)
             return
             
         url = "https://api.etherscan.io/api"
@@ -188,19 +189,19 @@ def balance(update, context):
 📍 Адрес: {address[:10]}...{address[-8:]}
 💰 Баланс: {balance_eth:.4f} ETH
             """
-            update.message.reply_text(message)
+            await update.message.reply_text(message)
         else:
-            update.message.reply_text("❌ Ошибка при получении баланса. Проверьте адрес кошелька.")
+            await update.message.reply_text("❌ Ошибка при получении баланса. Проверьте адрес кошелька.")
 
     except requests.exceptions.Timeout:
-        update.message.reply_text("⏰ Таймаут при запросе к Etherscan")
+        await update.message.reply_text("⏰ Таймаут при запросе к Etherscan")
     except requests.exceptions.RequestException:
-        update.message.reply_text("❌ Ошибка сети при получении баланса")
+        await update.message.reply_text("❌ Ошибка сети при получении баланса")
     except Exception as e:
         logger.error(f"Error in balance command: {e}")
-        update.message.reply_text("❌ Внутренняя ошибка бота")
+        await update.message.reply_text("❌ Внутренняя ошибка бота")
 
-def whale(update, context):
+async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /whale"""
     message = """
 🐋 **Трекинг китов**
@@ -217,9 +218,9 @@ def whale(update, context):
 /gas - газ Ethereum
 /balance - баланс кошелька
     """
-    update.message.reply_text(message)
+    await update.message.reply_text(message)
 
-def help_command(update, context):
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /help"""
     help_text = """
 📋 **Доступные команды:**
@@ -236,9 +237,9 @@ def help_command(update, context):
 /gas
 /balance 0x742d35Cc6634C0532925a3b8D6B3980A11F1f6f1
     """
-    update.message.reply_text(help_text)
+    await update.message.reply_text(help_text)
 
-def error_handler(update, context):
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик ошибок"""
     logger.error(f"Update {update} caused error {context.error}")
 
@@ -251,32 +252,31 @@ def main():
         print(f"❌ Токен: {TELEGRAM_TOKEN}")
         return
 
-    print("✅ 3. Токен найден, создаем Updater...")
+    print("✅ 3. Токен найден, создаем Application...")
     
     try:
-        updater = Updater(TELEGRAM_TOKEN, use_context=True)
-        print("✅ 4. Updater создан")
+        application = Application.builder().token(TELEGRAM_TOKEN).build()
+        print("✅ 4. Application создан")
         
-        dispatcher = updater.dispatcher
-        print("✅ 5. Dispatcher получен")
-
         # Добавляем обработчики команд
-        dispatcher.add_handler(CommandHandler("start", start))
-        dispatcher.add_handler(CommandHandler("price", price))
-        dispatcher.add_handler(CommandHandler("gas", gas))
-        dispatcher.add_handler(CommandHandler("balance", balance))
-        dispatcher.add_handler(CommandHandler("whale", whale))
-        dispatcher.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("price", price))
+        application.add_handler(CommandHandler("gas", gas))
+        application.add_handler(CommandHandler("balance", balance))
+        application.add_handler(CommandHandler("whale", whale))
+        application.add_handler(CommandHandler("help", help_command))
 
-        print("✅ 6. Обработчики добавлены")
-        print("🚀 7. Запускаем бота...")
+        # Добавляем обработчик ошибок
+        application.add_error_handler(error_handler)
+
+        print("✅ 5. Обработчики добавлены")
+        print("🚀 6. Запускаем бота...")
         
-        updater.start_polling()
-        print("✅ 8. Бот запущен успешно!")
-        updater.idle()
+        application.run_polling()
+        print("✅ 7. Бот запущен успешно!")
         
     except Exception as e:
-        print(f"❌ 9. КРИТИЧЕСКАЯ ОШИБКА: {e}")
+        print(f"❌ 8. КРИТИЧЕСКАЯ ОШИБКА: {e}")
         import traceback
         traceback.print_exc()
 
