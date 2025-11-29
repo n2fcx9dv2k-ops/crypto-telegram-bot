@@ -1,0 +1,299 @@
+import os
+import requests
+import logging
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
+
+# Настройка логирования
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# Загрузка переменных окружения
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    logger.warning("python-dotenv не установлен, используем системные переменные окружения")
+
+# Получение API ключей
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
+COINMARKETCAP_API = os.getenv('COINMARKETCAP_API')
+ETHERSCAN_API = os.getenv('ETHERSCAN_API')
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /start"""
+    user_name = update.message.from_user.first_name
+    welcome_text = f"""
+🚀 **Привет, {user_name}!**
+
+🤖 **Crypto Intelligence Bot** активирован!
+
+📊 **Анализ крипторынка: цены, киты, газ**
+
+**Доступные команды:**
+/start - Начало работы
+/price [символ] - Цена криптовалюты
+/gas - Текущая цена газа в сети Ethereum  
+/balance [адрес] - Баланс Ethereum кошелька
+/whale - Движения китов
+
+**Примеры использования:**
+/price BTC
+/price ETH
+/price TON
+/gas
+/balance 0x742d35Cc6634C0532925a3b8D6B3980A11F1f6f1
+    """
+    await update.message.reply_text(welcome_text)
+
+async def price(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /price"""
+    if not context.args:
+        await update.message.reply_text("❌ Укажите символ криптовалюты. Например: /price BTC")
+        return
+    
+    symbol = context.args[0].upper()
+    
+    try:
+        # Если API ключ не установлен, показываем заглушку
+        if not COINMARKETCAP_API:
+            await update.message.reply_text(f"💰 **{symbol}**\n\n💵 Цена: $--,--\n📊 Изменение за 24ч: +--%")
+            return
+            
+        url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
+        parameters = {'symbol': symbol, 'convert': 'USD'}
+        headers = {
+            'Accepts': 'application/json',
+            'X-CMC_PRO_API_KEY': COINMARKETCAP_API,
+        }
+
+        response = requests.get(url, headers=headers, params=parameters, timeout=10)
+        data = response.json()
+
+        if response.status_code == 200 and 'data' in data and symbol in data['data']:
+            coin_data = data['data'][symbol]
+            price_usd = coin_data['quote']['USD']['price']
+            change_24h = coin_data['quote']['USD']['percent_change_24h']
+            
+            # Определяем эмодзи для изменения цены
+            change_emoji = "📈" if change_24h > 0 else "📉" if change_24h < 0 else "➡️"
+            
+            message = f"""
+💰 **{coin_data['name']} ({symbol})**
+
+💵 Цена: ${price_usd:,.2f}
+{change_emoji} Изменение за 24ч: {change_24h:+.2f}%
+🆔 Ранг: #{coin_data.get('cmc_rank', 'N/A')}
+            """
+            await update.message.reply_text(message)
+        else:
+            error_msg = data.get('status', {}).get('error_message', 'Криптовалюта не найдена')
+            await update.message.reply_text(f"❌ Ошибка: {error_msg}")
+
+    except requests.exceptions.Timeout:
+        await update.message.reply_text("⏰ Таймаут при запросе к CoinMarketCap")
+    except requests.exceptions.RequestException:
+        await update.message.reply_text("❌ Ошибка сети при получении данных")
+    except Exception as e:
+        logger.error(f"Error in price command: {e}")
+        await update.message.reply_text("❌ Внутренняя ошибка бота")
+
+async def gas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /gas"""
+    try:
+        # Если API ключ не установлен, показываем заглушку
+        if not ETHERSCAN_API:
+            message = """
+⛽ **Gas Prices (Ethereum)**
+
+🚀 Быстро: -- Gwei
+🐢 Медленно: -- Gwei  
+⚡ Стандарт: -- Gwei
+            """
+            await update.message.reply_text(message)
+            return
+            
+        url = "https://api.etherscan.io/api"
+        params = {
+            'module': 'gastracker',
+            'action': 'gasoracle',
+            'apikey': ETHERSCAN_API
+        }
+
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+
+        if data['status'] == '1':
+            gas_data = data['result']
+            message = f"""
+⛽ **Gas Prices (Ethereum)**
+
+🚀 Быстро: {gas_data['FastGasPrice']} Gwei
+🐢 Медленно: {gas_data['SafeGasPrice']} Gwei
+⚡ Стандарт: {gas_data['ProposeGasPrice']} Gwei
+            """
+            await update.message.reply_text(message)
+        else:
+            await update.message.reply_text("❌ Ошибка при получении данных о газе")
+
+    except requests.exceptions.Timeout:
+        await update.message.reply_text("⏰ Таймаут при запросе к Etherscan")
+    except requests.exceptions.RequestException:
+        await update.message.reply_text("❌ Ошибка сети при получении данных о газе")
+    except Exception as e:
+        logger.error(f"Error in gas command: {e}")
+        await update.message.reply_text("❌ Внутренняя ошибка бота")
+
+async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /balance"""
+    if not context.args:
+        await update.message.reply_text("❌ Укажите адрес кошелька. Например: /balance 0x742d35Cc6634C0532925a3b8D6B3980A11F1f6f1")
+        return
+    
+    address = context.args[0]
+    
+    # Базовая валидация адреса Ethereum
+    if not address.startswith('0x') or len(address) != 42:
+        await update.message.reply_text("❌ Неверный формат Ethereum адреса")
+        return
+    
+    try:
+        # Если API ключ не установлен, показываем заглушку
+        if not ETHERSCAN_API:
+            message = f"""
+👛 **Баланс кошелька**
+
+📍 Адрес: {address[:10]}...{address[-8:]}
+💰 Баланс: --.-- ETH
+            """
+            await update.message.reply_text(message)
+            return
+            
+        url = "https://api.etherscan.io/api"
+        params = {
+            'module': 'account',
+            'action': 'balance',
+            'address': address,
+            'tag': 'latest',
+            'apikey': ETHERSCAN_API
+        }
+
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+
+        if data['status'] == '1':
+            # Конвертируем wei в ETH
+            balance_wei = int(data['result'])
+            balance_eth = balance_wei / 10**18
+            
+            message = f"""
+👛 **Баланс кошелька**
+
+📍 Адрес: {address[:10]}...{address[-8:]}
+💰 Баланс: {balance_eth:.4f} ETH
+            """
+            await update.message.reply_text(message)
+        else:
+            await update.message.reply_text("❌ Ошибка при получении баланса. Проверьте адрес кошелька.")
+
+    except requests.exceptions.Timeout:
+        await update.message.reply_text("⏰ Таймаут при запросе к Etherscan")
+    except requests.exceptions.RequestException:
+        await update.message.reply_text("❌ Ошибка сети при получении баланса")
+    except Exception as e:
+        logger.error(f"Error in balance command: {e}")
+        await update.message.reply_text("❌ Внутренняя ошибка бота")
+
+async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /whale"""
+    message = """
+🐋 **Трекинг китов**
+
+🚧 Функция в разработке! Скоро здесь будет:
+
+• 📈 Крупные транзакции
+• 🐋 Движения китов  
+• 🔍 Анализ больших переводов
+• ⚡ Мгновенные оповещения
+
+А пока используйте другие команды:
+/price - цены монет
+/gas - газ Ethereum
+/balance - баланс кошелька
+    """
+    await update.message.reply_text(message)
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /help"""
+    help_text = """
+📋 **Доступные команды:**
+
+/start - Начало работы
+/price [символ] - Цена криптовалюты (BTC, ETH, etc)
+/gas - Текущая цена газа в сети Ethereum
+/balance [адрес] - Баланс Ethereum кошелька
+/whale - Движения китов (в разработке)
+/help - Справка по командам
+
+**Примеры:**
+/price BTC
+/gas
+/balance 0x742d35Cc6634C0532925a3b8D6B3980A11F1f6f1
+    """
+    await update.message.reply_text(help_text)
+
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик ошибок"""
+    logger.error(f"Update {update} caused error {context.error}")
+    
+    # Отправляем сообщение пользователю об ошибке
+    if update and update.effective_message:
+        await update.effective_message.reply_text(
+            "❌ Произошла ошибка при обработке запроса. Попробуйте позже."
+        )
+
+def main():
+    """Основная функция запуска бота"""
+    # Проверяем наличие токена
+    if not TELEGRAM_TOKEN:
+        print("❌ ОШИБКА: Токен Telegram не установлен!")
+        print("✅ РЕШЕНИЕ: Создайте файл .env в той же папке с содержимым:")
+        print("TELEGRAM_TOKEN=ваш_телеграм_токен")
+        print("COINMARKETCAP_API=ваш_coinmarketcap_api")
+        print("ETHERSCAN_API=ваш_etherscan_api")
+        return
+
+    try:
+        # Создаем приложение
+        application = Application.builder().token(TELEGRAM_TOKEN).build()
+
+        # Добавляем обработчики команд
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("price", price))
+        application.add_handler(CommandHandler("gas", gas))
+        application.add_handler(CommandHandler("balance", balance))
+        application.add_handler(CommandHandler("whale", whale))
+        application.add_handler(CommandHandler("help", help_command))
+
+        # Добавляем обработчик ошибок
+        application.add_error_handler(error_handler)
+
+        # Запускаем бота
+        print("🤖 Crypto Intelligence Bot запускается...")
+        print("✅ Бот активен! Напишите /start в Telegram")
+        print("⏹️  Для остановки нажмите Ctrl+C")
+        
+        application.run_polling()
+        
+    except Exception as e:
+        logger.error(f"Критическая ошибка: {e}")
+        print("🔧 Проверьте:")
+        print("   - Правильность Telegram токена")
+        print("   - Наличие интернет-соединения")
+        print("   - Установлены ли все зависимости")
+
+if __name__ == '__main__':
+    main()
